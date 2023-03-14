@@ -8,6 +8,9 @@
 #define MAX_X 752
 // Threshold for judging if intensity high enough. Better to do as variable, but want to avoid changing signature for now
 #define THRESHOLD 20
+// Rely on input data length being a multple of a power of 2, so that FPGA can load in bursts efficiently
+// For initial test, will set to 32 (i.e. assuming cols_in is a multiple of 8). Would then expect input auto-widening.
+#define BURSTLENGTH 32
 
 //size of image is set here
 #define MAX_SIZE 360960
@@ -18,12 +21,25 @@ const int c_size = DATA_SIZE;
 
 static void ReadFromMem(unsigned char* inputImage, hls::stream<unsigned char>& input_stream, int rows_in, int cols_in, int stride)
 {
-    int size = rows_in * cols_in; // Assume for now that number of rows is multiple of 4.
+    // We assume that number of columns (x size) is multiple of 8.
+    // If number of rows is not multiple of 4, then we will ignore the last few rows.
+    int nblocks = rows_in / 4;
+    int rows_to_read = nblocks * 4;
+    // Given these assumptions, size will be a multiple of 32. For now, reading in bursts of 32 is probably fast enough.
+    int size = rows_to_read * cols_in;
+    int nbursts = size / BURSTLENGTH;
+    // Manual recommends hinting that we have more than 0 data, for burst inference.
+    assert (size > 0);
 
-    // Load image data steadily into the input stream object
-    for (int i=0; i<size; i++) {
-        unsigned char newpix = inputImage[i];
-        input_stream.write( newpix );
+
+    // Use nested loop with fixed inner bound to allow FPGA to infer stuff like port widening, bursting etc.
+    for (int i=0; i<size; i+=BURSTLENGTH) {
+        for (int j=0; j<BURSTLENGTH; ++j) {
+            // Pragma minimizes overhead of multiple loops when we have perfect loops (no code between loops, inner bound fixed)
+            #pragma HLS loop_flatten
+            #pragma HLS PIPELINE II = 1
+            input_stream.write(inputImage[i+j]);
+        }
     }
 }
 
@@ -38,16 +54,16 @@ static void MPFASTprocess(hls::stream<unsigned char>& input_stream, int rows_in,
     //Array partitioning to disintegrate data into different memory blocks
     //Use CYCLIC partioning rather than block partition, because we need simultaneous access to NEARBY elements.
     //"Factor" controls number of blocks we subdivide into in each dimension. Here, cautiously using 8, but 4 should work in theory (each clock cycle, we only access data in a 4x4 region)
-    #pragma HLS ARRAY_PARTITION variable=loc_buff cyclic factor=8 complete dim=0
+    #pragma HLS ARRAY_PARTITION variable=loc_buff cyclic factor=8 dim=0
 
     // Omit flag logic and dependencies between loops whereever possible; only thing to keep is the position where we write the output
 
     int nblocks = rows_in / 4; // Keep track of sets of 4 rows, for purposes of ring buffer logic
 
-    for(int blockno = 0; blockno < nblocks; blockno++){
+    for(int blockno = 0; blockno < nblocks; ++blockno){
         // Not sure if DEPENDENCE pragma should go here, or later
-        for(int rowcount = 0; rowcount < 4; rowcount++){
-            for(int xpos = 0; xpos < xwidth; xpos++){
+        for(int rowcount = 0; rowcount < 4; ++rowcount){
+            for(int xpos = 0; xpos < xwidth; ++xpos){
                 // Attempt to pipeline with one pixel per clock cycle
                 #pragma HLS PIPELINE II=1
                 // loop_flatten should reduce delay between loops, but this shouldn't be critical for performance - omit if problems occur
@@ -156,7 +172,8 @@ void mp_fast(unsigned char* inputImage, int rows_in, int cols_in, int stride, in
     static hls::stream<unsigned char> input_stream("input_stream");
     static hls::stream<int> xkey_stream("xkey_stream");
     static hls::stream<int> ykey_stream("ykey_stream");
-    #pragma HLS STREAM variable = input_stream depth = 32
+    // Have a nice long buffer for input pixels to help data flow
+    #pragma HLS STREAM variable = input_stream depth = 128
     #pragma HLS STREAM variable = xkey_stream depth = 32
     #pragma HLS STREAM variable = ykey_stream depth = 32
 
