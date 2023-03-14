@@ -9,8 +9,8 @@
 // Threshold for judging if intensity high enough. Better to do as variable, but want to avoid changing signature for now
 #define THRESHOLD 20
 // Rely on input data length being a multple of a power of 2, so that FPGA can load in bursts efficiently
-// For initial test, will set to 32 (i.e. assuming cols_in is a multiple of 8). Would then expect input auto-widening.
-#define BURSTLENGTH 32
+// For initial test, will set to 64 (i.e. assuming cols_in is a multiple of 16). Would then expect input auto-widening.
+#define BURSTLENGTH 64
 
 //size of image is set here
 #define MAX_SIZE 360960
@@ -21,16 +21,14 @@ const int c_size = DATA_SIZE;
 
 static void ReadFromMem(unsigned char* inputImage, hls::stream<unsigned char>& input_stream, int rows_in, int cols_in, int stride)
 {
-    // We assume that number of columns (x size) is multiple of 8.
+    // We assume that number of columns (x size) is multiple of 16.
     // If number of rows is not multiple of 4, then we will ignore the last few rows.
     int nblocks = rows_in / 4;
     int rows_to_read = nblocks * 4;
     // Given these assumptions, size will be a multiple of 32. For now, reading in bursts of 32 is probably fast enough.
     int size = rows_to_read * cols_in;
-    int nbursts = size / BURSTLENGTH;
     // Manual recommends hinting that we have more than 0 data, for burst inference.
     assert (size > 0);
-
 
     // Use nested loop with fixed inner bound to allow FPGA to infer stuff like port widening, bursting etc.
     for (int i=0; i<size; i+=BURSTLENGTH) {
