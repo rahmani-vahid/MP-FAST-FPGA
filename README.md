@@ -105,7 +105,7 @@ https://doi.org/10.1107/S160057672400147X
 
 This repository is maintained as a **research-code archive** demonstrating FPGA-oriented scientific image-processing techniques. It is provided for inspection and technical discussion; its current publication does not imply that it has been recently rebuilt, tested against every Vitis release, or validated on other accelerator cards.
 
-**Licensing:** No explicit license file is included in the repository snapshot reviewed for this README. Please confirm the applicable ownership and redistribution permissions before reusing or redistributing the code.
+**Licensing:** This project is licensed under the MIT License. See LICENSE for details.
 
 ---
 
